@@ -150,9 +150,14 @@ def _vkey(v):
 
 
 def scan() -> list:
-    """Discover extras from the user dir AND the bundled examples. Reads
-    manifests only — never imports an extra's code (that happens lazily on
-    launch).
+    """Discover the extras the player has: the user dir (~/.wdgo/extras), which is
+    where the Hub installs and where hand-copied extras go. Reads manifests only —
+    never imports an extra's code (that happens lazily on launch).
+
+    The examples shipped in the repository are reference code for authors; they are
+    published through the hub like any other extra, so they are NOT listed here by
+    default (the list shows what is installed, nothing else). A developer can list
+    them too with WDGO_EXTRAS_EXAMPLES=1.
 
     When the same id exists in both places, the HIGHER manifest 'version' wins
     (ties -> the shipped example, which is canonical and updates with the game).
@@ -161,7 +166,10 @@ def scan() -> list:
     first, by name.
     """
     cands = {}      # id -> list of (origin, meta); origin 0=user dir, 1=shipped example
-    for origin, root in ((0, extras_root()), (1, examples_dir())):
+    roots = [(0, extras_root())]
+    if os.environ.get("WDGO_EXTRAS_EXAMPLES") == "1":
+        roots.append((1, examples_dir()))
+    for origin, root in roots:
         try:
             os.makedirs(root, exist_ok=True)
         except Exception:

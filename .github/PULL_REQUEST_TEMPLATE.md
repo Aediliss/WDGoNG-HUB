@@ -19,4 +19,4 @@
 - [ ] `description` and `about` in `extra.json` describe it honestly
 - [ ] `version` bumped (for updates)
 - [ ] this is my own work / I have the right to publish it
-- [ ] I only changed files under `extras/<my-id>/` - not `index.json`, `index.json.sig`, `pending/` or `ratings.json` (they are generated)
+- [ ] I only changed files under `extras/<my-id>/` - not `index.json`, `index.json.sig`, `pending/`, `ratings.json` or `official.json`

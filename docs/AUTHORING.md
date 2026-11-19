@@ -19,9 +19,10 @@ capabilities it declares. You write one folder, drop it in, and the game picks i
 ## 1. Where extras live & the EXTRAS API version
 
 - Your extras live in **`~/.wdgo/extras/<id>/`** (user dir — it survives game updates;
-  the game's OTA never touches it). Bundled examples ship in the repo under
-  `extras/examples/` and are scanned directly from there, so they always match the
-  installed game version. A user extra with the same `id` shadows a shipped example.
+  the game's OTA never touches it). That folder is all the EXTRAS list shows: what the
+  Hub installed and what you copied in by hand. The reference examples under
+  `extras/examples/` are not listed by default; start the game with
+  `WDGO_EXTRAS_EXAMPLES=1` to list them too while developing.
 - Each extra's writable storage is **`~/.wdgo/extras-data/<id>/`** (separate from the
   code, so it persists across updates); reach it only via `ctx.storage`.
 - The game advertises an integer **`EXTRAS_API`** (currently **2**; `2` added images).

@@ -89,6 +89,10 @@ def main():
 
     eid = os.path.basename(d.rstrip(os.sep))
     print("== hub check: %s ==" % eid)
+    import hub_official
+    official = hub_official.load(os.path.join(os.path.dirname(os.path.dirname(d)), "official.json"),
+                                 os.path.join(os.path.dirname(here), "official.json"),
+                                 os.path.join(here, "template", "official.json"))
 
     # 1. manifest ------------------------------------------------------------
     meta = wx._load_meta(d)
@@ -97,6 +101,11 @@ def main():
         sys.exit(1)
     OK("manifest valid: %s v%s by %s, api %d, permissions %s"
        % (meta.name, meta.version, meta.author or "?", meta.api, meta.permissions or "none"))
+    if hub_official.reserved_name_misuse(official, meta.id, meta.author):
+        FAIL("manifest: the author name '%s' is reserved for the hub's own extras - use your own name"
+             % official["author"])
+    elif hub_official.is_official(official, meta.id, meta.author):
+        OK("official extra (listed in official.json)")
     for field in ("author", "description", "about"):
         if not getattr(meta, field):
             FAIL("manifest: '%s' is required for the hub" % field)

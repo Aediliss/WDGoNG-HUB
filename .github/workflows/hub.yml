@@ -4,7 +4,7 @@ on:
   pull_request:
   push:
     branches: [main]
-    paths: ["extras/**", "tools/**"]
+    paths: ["extras/**", "tools/**", "official.json"]
   schedule:
     - cron: "17 */6 * * *"      # refresh banana / peel counts
   workflow_dispatch:
@@ -28,7 +28,7 @@ jobs:
       - name: generated files are not edited by hand
         run: |
           set -e
-          bad=$(git diff --name-only "origin/${{ github.base_ref }}"...HEAD -- index.json index.json.sig pending ratings.json)
+          bad=$(git diff --name-only "origin/${{ github.base_ref }}"...HEAD -- index.json index.json.sig pending ratings.json official.json)
           [ -z "$bad" ] || { echo "PR edits generated file(s): $bad - these are rebuilt on merge"; exit 1; }
       - name: check changed extras
         run: |

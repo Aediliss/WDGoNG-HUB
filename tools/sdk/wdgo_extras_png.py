@@ -3,7 +3,9 @@
 Extras may ship a few SMALL images (an icon, a logo). They are decoded here -
 inside the sandbox for third-party extras - into raw RGBA, and only those raw
 pixels, with their size re-checked, ever reach the game's renderer. The game
-process never hands a third-party file to a native image library.
+process never hands a third-party file to a native image library. The single
+image the game decodes itself is a hub extra's tiny icon.png, with this module,
+and only from content that matches the signed catalogue (see HubScreen._icon).
 
 Deliberately narrow: 8-bit greyscale / RGB / grey+alpha / RGBA, and greyscale or
 palette at 1, 2 or 4 bits (what image tools write for small palettes); non-interlaced, at most IMG_MAX_PX on a side. Anything else is refused with a

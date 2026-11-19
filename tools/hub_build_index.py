@@ -56,6 +56,8 @@ def main():
     sys.path.insert(0, sdk or _find_sdk(here))
     import wdgo_extras as wx
 
+    import hub_official
+    official = hub_official.load(os.path.join(root, "official.json"))
     extras = {}
     base = os.path.join(root, "extras")
     for eid in sorted(os.listdir(base)) if os.path.isdir(base) else []:
@@ -72,6 +74,11 @@ def main():
             "category": m.category, "tags": m.tags, "homepage": m.homepage,
             "sha": wx.sources_hash(wx.collect_sources(d)),
         }
+        if hub_official.reserved_name_misuse(official, m.id, m.author):
+            print("SKIP  %s: author name '%s' is reserved" % (eid, official["author"]))
+            sys.exit(1)
+        if hub_official.is_official(official, m.id, m.author):
+            extras[m.id]["official"] = True  # from the maintainer - shown in green by game and store
         icon = os.path.join(d, "icon.png")
         if os.path.isfile(icon) and not os.path.islink(icon):
             import wdgo_extras_png

@@ -29,6 +29,8 @@ Updating = a new PR that changes your folder and bumps `version` in `extra.json`
 - Ask only for the permissions you use. `description` and `about` must say what the
   extra does, in plain words.
 - One folder per extra, id == folder name, source/docs/PNG files only.
+- Sign with your own name. The author name `LOCOSP` is reserved for the hub's own
+  extras (`official.json`); those are the ones shown in green in the game and the store.
 - Images are optional and small: `icon.png` (store icon) up to 64x64 px / 16 KB; other
   PNGs your extra draws up to 512x512 px / 256 KB each, 8 files and 512 KB in total.
 
@@ -52,6 +54,7 @@ via git, the signature and the checksums.
     extras/<id>/        reviewed source:  extra.json, main.py, optional icon.png + other small PNGs
     index.html          public storefront (GitHub Pages)
     ratings.json        banana / peel counts (generated - do not edit)
+    official.json       the maintainer's own extras (maintainer only)
     index.json          catalogue (generated - do not edit by hand)
     index.json.sig      OpenSSH signature of index.json (maintainer, offline)
     pending/index.json  candidate built by CI after a merge, waiting to be signed
