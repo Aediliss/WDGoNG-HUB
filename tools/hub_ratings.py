@@ -59,8 +59,13 @@ def api(method, path, token, body=None):
 
 def run(root, repo, call) -> dict:
     """call(method, path, body=None) -> (status, json). Returns {id: {banana, peel, url}}."""
-    with open(os.path.join(root, "index.json"), "r", encoding="utf-8") as f:
-        extras = (json.load(f) or {}).get("extras") or {}
+    # Votes are for RELEASED extras (the signed index.json), not for candidates.
+    # Before the first release there is no index.json: nothing to vote on yet.
+    try:
+        with open(os.path.join(root, "index.json"), "r", encoding="utf-8") as f:
+            extras = (json.load(f) or {}).get("extras") or {}
+    except FileNotFoundError:
+        extras = {}
     st, _ = call("GET", "/repos/%s/labels/%s" % (repo, LABEL))
     if st == 404:
         call("POST", "/repos/%s/labels" % repo,
