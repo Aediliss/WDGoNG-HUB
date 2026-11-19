@@ -30,14 +30,14 @@
    "name": "Hello Wardriver",
    "official": true,
    "permissions": [],
-   "sha": "710ff211f59a16dc43fa3754f7a2bf38e09da78b558f8c0bd5afc23fb1bbe45a",
+   "sha": "509b3d196e0adcc91f86c263b3e57ca4af6bf13d8820ec157c921916d5348974",
    "tags": [
     "intro",
     "guide",
     "rules",
     "example"
    ],
-   "version": "1.0.0"
+   "version": "1.0.1"
   },
   "key_copier": {
    "api": 2,
