@@ -18,6 +18,24 @@
    ],
    "version": "1.0.0"
   },
+  "hello_wardriver": {
+   "api": 2,
+   "author": "LOCOSP",
+   "category": "tools",
+   "description": "Start here: what extras are, the rules, and how to write your own.",
+   "homepage": "",
+   "icon": true,
+   "name": "Hello Wardriver",
+   "permissions": [],
+   "sha": "710ff211f59a16dc43fa3754f7a2bf38e09da78b558f8c0bd5afc23fb1bbe45a",
+   "tags": [
+    "intro",
+    "guide",
+    "rules",
+    "example"
+   ],
+   "version": "1.0.0"
+  },
   "key_copier": {
    "api": 1,
    "author": "WDGo",
