@@ -26,6 +26,7 @@
    "homepage": "",
    "icon": true,
    "name": "Hello Wardriver",
+   "official": true,
    "permissions": [],
    "sha": "710ff211f59a16dc43fa3754f7a2bf38e09da78b558f8c0bd5afc23fb1bbe45a",
    "tags": [
