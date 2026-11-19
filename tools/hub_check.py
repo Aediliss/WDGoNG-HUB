@@ -156,6 +156,9 @@ def main():
                     FAIL("image: %s - %s" % (rel, exc))
     if n_png > wx.IMG_MAX_COUNT:
         FAIL("files: too many images (%d, max %d)" % (n_png, wx.IMG_MAX_COUNT))
+    if n_png and meta.api < 2:
+        FAIL('manifest: an extra that ships images (an icon counts) must declare "api": 2 - '
+             "older games do not know images and would refuse it with a checksum error")
     if total > MAX_TOTAL:
         FAIL("files: extra is too large in total (%d bytes)" % total)
     try:
