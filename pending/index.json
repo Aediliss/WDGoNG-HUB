@@ -1,23 +1,24 @@
 {
  "extras": {
   "gps_speedo": {
-   "api": 1,
+   "api": 2,
    "author": "LOCOSP",
    "category": "tools",
    "description": "Live speed + heading from your GPS fix.",
    "homepage": "",
+   "icon": true,
    "name": "GPS Speedometer",
    "official": true,
    "permissions": [
     "gps"
    ],
-   "sha": "1bd4f83f87114a503edc072c22f0abb1ac03ebed9c2e6d4d5c8c3dfb6d14d326",
+   "sha": "4f16afea14030910a3fa1c70c93dfa19b86e2c11fb773bc7f4bebdc4a1a10ec1",
    "tags": [
     "gps",
     "speed",
     "navigation"
    ],
-   "version": "1.0.1"
+   "version": "1.0.2"
   },
   "hello_wardriver": {
    "api": 2,
@@ -39,17 +40,18 @@
    "version": "1.0.0"
   },
   "key_copier": {
-   "api": 1,
+   "api": 2,
    "author": "LOCOSP",
    "category": "tools",
    "description": "1:1 pin-tumbler key bitting tracer & editor.",
    "homepage": "https://github.com/zinongli/KeyCopier",
+   "icon": true,
    "name": "Key Copier",
    "official": true,
    "permissions": [
     "loot_write"
    ],
-   "sha": "4315d74d30a563ed25087cec80103db88c35920c4e5660783956a976d4232616",
+   "sha": "9169ccc30f5102d37957b16e1f5b57d85979f9a8d2c448f43a4be9e2ac006ff9",
    "tags": [
     "locksmith",
     "key",
@@ -57,7 +59,7 @@
     "security",
     "physical"
    ],
-   "version": "1.3.1"
+   "version": "1.3.2"
   }
  },
  "schema": 1
