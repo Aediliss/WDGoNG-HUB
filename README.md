@@ -1,6 +1,6 @@
-# WDGo extras hub
+# WatchDogsGo NG extras hub
 
-Reviewed mini-apps ("extras") for the game. Everything here was submitted by pull
+Reviewed mini-apps ("extras") for **WatchDogsGo NG**. Everything here was submitted by pull
 request, passed the automated checks, was read by a maintainer, and is listed in a
 **signed** catalogue. The game installs an extra only if the catalogue's signature
 is valid and the files match the checksum in it — and then still runs it sandboxed.

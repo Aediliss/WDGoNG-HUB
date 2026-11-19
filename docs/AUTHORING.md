@@ -1,4 +1,4 @@
-# Writing an EXTRA for WatchDogsGo
+# Writing an EXTRA for WatchDogsGo NG
 
 An **extra** is a self-contained mini-app that shows up under the **EXTRAS** menu and
 runs inside the game, drawing into its own screen and reading the hardware
