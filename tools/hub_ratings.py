@@ -35,8 +35,9 @@ One vote per GitHub account; you can change it any time. Comments are welcome fo
 bug reports and feedback. Counts show up on the store and in the game's Hub screen
 within a few hours.
 
-Extras are made by their authors, not by LOCOSP. Install and run only what you know
-and trust, at your own risk.
+Official extras (author LOCOSP, marked ✓) come from the hub maintainer. All others are
+made by their own authors, not by LOCOSP. Install and run only what you know and trust,
+at your own risk.
 """
 
 

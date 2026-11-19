@@ -372,6 +372,14 @@ def provenance(meta, sha) -> str:
     return "local"
 
 
+def is_official(meta, sha) -> bool:
+    """True only for an extra installed from the signed hub, byte-identical to what was
+    verified, whose catalogue entry carried official=true (the maintainer's own list)."""
+    ent = _read_json_file(installed_file(), {}).get(meta.id)
+    return (isinstance(ent, dict) and ent.get("source") == "hub" and ent.get("sha") == sha
+            and ent.get("official") is True)
+
+
 def consent_ok(meta, sha) -> bool:
     ent = _read_json_file(consent_file(), {}).get(meta.id)
     return (isinstance(ent, dict) and ent.get("sha") == sha
@@ -431,7 +439,10 @@ class ConsentScreen:
         y += 26
         b.draw_text("code fingerprint  %s" % self._sha[:32], 0, y, 13, "dim", False); y += 30
         # who made it / who answers for it - said plainly, every time
-        if self._source == "hub":
+        if self._source == "hub" and is_official(m, self._sha):
+            b.draw_text("Official extra by LOCOSP - marked official in the signed hub catalogue.", 0, y, 15, "success", True); y += 22
+            b.draw_text("It still runs sandboxed and gets only what it asks for below.", 0, y, 15, "success", False); y += 32
+        elif self._source == "hub":
             b.draw_text("Third-party extra: written by its author, NOT by LOCOSP. A hub review", 0, y, 15, "warn", True); y += 22
             b.draw_text("is not a guarantee. You install and use it at your own risk.", 0, y, 15, "warn", True); y += 32
         else:
