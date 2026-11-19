@@ -1,4 +1,15 @@
 {
- "extras": {},
+ "extras": {
+  "gps_speedo": {
+   "banana": 0,
+   "peel": 0,
+   "url": "https://github.com/LOCOSP/WDGoNG-HUB/issues/2"
+  },
+  "key_copier": {
+   "banana": 0,
+   "peel": 0,
+   "url": "https://github.com/LOCOSP/WDGoNG-HUB/issues/3"
+  }
+ },
  "schema": 1
 }
