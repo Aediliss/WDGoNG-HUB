@@ -247,6 +247,7 @@ def main():
     import collections
     import time
     import types
+    import base64
     import wdgo_extras as wx
     import wdgo_extras_ipc as ipc
 
@@ -304,6 +305,7 @@ def main():
     # LAST on meta_path: builtin/frozen modules keep resolving; everything that
     # would have come from disk falls through to the extra's own modules or a clear error.
     sys.meta_path.append(_MemImporter(src, prefix))
+    img_src = {r: bytes(d) for r, d in src.items() if r.endswith(".png")}
     del src
     send({"t": "ready", "iso": iso})
 
@@ -356,6 +358,34 @@ def main():
     b.draw_line = lambda x1, y1, x2, y2, color, thick: add(
         ["l", r2(x1), r2(y1), r2(x2), r2(y2), str(color), r2(thick)])
     b.draw_circle = lambda x, y, r, color: add(["c", r2(x), r2(y), r2(r), str(color)])
+
+    img_sent, img_todo = set(), {}       # todo: name -> [w, h, rgba, next row]
+
+    def draw_image(name, w, h, rgba, x, y, scale, alpha):
+        # Pixels travel once, as raw RGBA the host re-checks, in strips of rows spread
+        # over a few frames (every message stays small); afterwards only the name.
+        if name not in img_sent and name not in img_todo:
+            img_todo[name] = [int(w), int(h), rgba, 0]
+        add(["i", name, r2(x), r2(y), int(scale), int(alpha)])
+
+    def image_strip():
+        """The next strip to ship: ({name: [w, h, y0, base64 rows]}, commit) or (None, None)."""
+        if not img_todo:
+            return None, None
+        name = next(iter(img_todo))
+        w, h, rgba, y0 = img_todo[name]
+        rows = max(1, ipc.IMG_STRIP_BYTES // (w * 4))
+        y1 = min(h, y0 + rows)
+
+        def commit():
+            if y1 >= h:
+                img_sent.add(name)
+                del img_todo[name]
+            else:
+                img_todo[name][3] = y1
+        return {name: [w, h, y0, base64.b64encode(rgba[y0 * w * 4:y1 * w * 4]).decode("ascii")]}, commit
+
+    b.draw_image = draw_image
     b.measure = lambda s, size=16: max(6, min(80, size)) * (mw[0] * len(str(s)) + mw[1])
     b.key_down = lambda name: str(name).lower() in snap["down"]
     b.key_pressed = lambda name: str(name).lower() in snap["pressed"]
@@ -399,7 +429,7 @@ def main():
 
     meta = wx.ExtraMeta("/" + extra_id)
     meta.permissions = [p for p in (hello.get("perms") or []) if p in wx._KNOWN_PERMS]
-    ctx = wx.ExtraContext(b, meta, "", storage=_RpcStorage())
+    ctx = wx.ExtraContext(b, meta, "", storage=_RpcStorage(), images=img_src)
 
     def fault(exc):
         send({"t": "fault", "err": _describe(exc, prefix)})
@@ -444,7 +474,13 @@ def main():
                     _die(0)
                 fault(exc)
             try:
-                send({"t": "frame", "n": msg.get("n"), "ops": ops, "logs": logs})
+                out = {"t": "frame", "n": msg.get("n"), "ops": ops, "logs": logs}
+                strip, commit = image_strip()
+                if strip:
+                    out["imgs"] = strip
+                send(out)
+                if commit:
+                    commit()
             except ipc.ProtocolError:
                 # frame too big to ship: drop the drawing, keep the extra alive
                 send({"t": "frame", "n": msg.get("n"), "ops": [],

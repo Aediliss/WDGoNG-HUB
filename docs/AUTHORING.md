@@ -24,8 +24,9 @@ capabilities it declares. You write one folder, drop it in, and the game picks i
   installed game version. A user extra with the same `id` shadows a shipped example.
 - Each extra's writable storage is **`~/.wdgo/extras-data/<id>/`** (separate from the
   code, so it persists across updates); reach it only via `ctx.storage`.
-- The game advertises an integer **`EXTRAS_API`** (currently **1**). Your manifest must
-  declare the `api` it was written for; the game refuses anything newer than it supports.
+- The game advertises an integer **`EXTRAS_API`** (currently **2**; `2` added images).
+  Your manifest must declare the `api` it was written for - use `2` if you call
+  `ctx.image`, `1` otherwise; the game refuses anything newer than it supports.
 
 ## 2. Naming conventions (follow these exactly)
 
@@ -72,7 +73,7 @@ The game reads this **without importing your code**. It is also exactly what wil
 | `name` | ✅ | menu label (keep ≤ 18 chars visible). |
 | `author` | ✅ | your handle — shown in the menu and hub, never trusted. |
 | `version` | ✅ | your extra's semver. |
-| `api` | ✅ | integer EXTRAS_API you built against (currently `1`). |
+| `api` | ✅ | integer EXTRAS_API you built against (`1`, or `2` if you draw images). |
 | `entry` | — | `module:Class`, default `main:Extra`. |
 | `permissions` | — | capabilities you request (§5). Only what you actually use. |
 | `hardware` | — | managers you rely on: `gps`, `lora`, `sdr`, `esp32`, `aio` (informational in v1). |
@@ -124,6 +125,29 @@ ctx.measure(s, size=16) -> width_px
 ```
 **Colors are names only** (keeps the game's theme consistent and is required for the
 sandbox): `txt, hi, dim, teal, danger, warn, success, magenta, ice, void, edge, purple`.
+
+### Images and the icon (api 2)
+Put plain **PNG** files in your extra's folder (subfolders are fine) and draw them:
+```python
+ctx.image("logo.png", x, y, scale=1, alpha=255)   # scale: whole number 1..8, pixels stay crisp
+ctx.image_size("logo.png") -> (width, height)
+```
+| File | Limits | Used for |
+|---|---|---|
+| `icon.png` (in the extra's root) | at most **64x64** px and **16 KB** | the extra's icon in the store listing. Optional. You can also draw it yourself with `ctx.image("icon.png", ...)`. |
+| any other `*.png` | at most **512x512** px and **256 KB** each | whatever your extra draws |
+
+An extra may ship at most **8** PNG files and **512 KB** of them in total. Keep them
+small: every player's device downloads the whole hub. A 16-colour greyscale logo at
+384x384 is about 40 KB; reduce colours (`pngquant`, or "indexed" export in an image
+editor) before you reach for a bigger file.
+
+Supported: 8-bit greyscale, RGB, RGBA, grey+alpha, and 1/2/4/8-bit palette or
+greyscale, with transparency. Not supported: interlaced and 16-bit PNG, and every
+other format (no JPEG, GIF, SVG, WebP) - `hub_check.py` and the simulator tell you
+exactly what is wrong with a file. Images are part of your extra's checksum, so they
+are reviewed and signed together with the code. A name that does not exist raises
+`KeyError`. Large images appear a few frames after the first draw call.
 
 ### Input (only while your extra is active)
 ```python
@@ -234,6 +258,16 @@ permissions change.
 See `examples/gps_speedo/` — a complete, commented extra (manifest + `main.py`)
 that reads the GPS fix, computes speed, draws it, and handles a key. Copy it as a starting
 point.
+
+`examples/hello_wardriver/` is the reference for **images and the icon**: a
+three-page card with `icon.png` (48x48) and a larger `logo.png`, no permissions. Its
+folder is the layout to copy:
+
+    hello_wardriver/
+        extra.json      manifest ("api": 2 because it draws images)
+        main.py         the Extra class
+        icon.png        store icon, also drawn in the header
+        logo.png        artwork drawn on the first page
 
 ## 10. Versioning & publishing to the hub
 

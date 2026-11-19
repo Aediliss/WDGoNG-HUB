@@ -18,8 +18,10 @@ Nothing received from the child is trusted. A protocol violation kills it.
 SandboxHost mirrors ExtraHost's surface (meta / state / error / open / frame /
 close) so the game drives both the same way. Pure stdlib — never imports raylib.
 """
+import base64
 import math
 import os
+import re
 import select
 import signal
 import socket
@@ -91,7 +93,53 @@ def _clean_text(v, limit):
 _C = 20000.0      # coordinate clamp (the host scissor does the real clipping)
 
 
-def sanitize_ops(raw) -> list:
+_IMG_NAME = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_./-]{0,63}\.png$")
+
+
+def sanitize_images(raw, have: dict, parts: dict) -> None:
+    """Accept image strips an untrusted child sends: {name: [w, h, y0, base64 RGBA rows]}.
+    Rows must arrive in order from row 0; a finished image moves to have[name] =
+    (w, h, pixels). The child decoded the file - all the host checks is that the
+    numbers describe a small image and that each strip is whole rows of it. Anything
+    inconsistent drops that image's partial data."""
+    if not isinstance(raw, dict):
+        return
+    for name, v in list(raw.items())[:2]:
+        try:
+            if not (isinstance(name, str) and _IMG_NAME.match(name) and ".." not in name):
+                continue
+            if name in have:
+                continue
+            w, h, y0, b64 = v
+            if not all(isinstance(n, int) and not isinstance(n, bool) for n in (w, h, y0)) \
+                    or not isinstance(b64, str):
+                continue
+            if not (1 <= w <= wx.IMG_MAX_PX and 1 <= h <= wx.IMG_MAX_PX):
+                continue
+            if len(b64) > (ipc.IMG_STRIP_BYTES + w * 4) * 4 // 3 + 8:
+                continue
+            part = parts.get(name)
+            if part is None:
+                if y0 != 0 or len(have) + len(parts) >= wx.IMG_MAX_COUNT:
+                    continue
+                part = parts[name] = [w, h, bytearray()]
+            if (part[0], part[1]) != (w, h) or y0 * w * 4 != len(part[2]):
+                parts.pop(name, None)
+                continue
+            px = base64.b64decode(b64, validate=True)
+            if not px or len(px) % (w * 4) or len(part[2]) + len(px) > w * h * 4:
+                parts.pop(name, None)
+                continue
+            part[2] += px
+            if len(part[2]) == w * h * 4:
+                have[name] = (w, h, bytes(part[2]))
+                del parts[name]
+        except Exception:
+            parts.pop(name, None) if isinstance(name, str) else None
+            continue
+
+
+def sanitize_ops(raw, images=None) -> list:
     """Turn an untrusted op list into a list of safe tuples; bad ops are dropped."""
     out = []
     if not isinstance(raw, list):
@@ -118,6 +166,9 @@ def sanitize_ops(raw) -> list:
             elif k == "c" and len(op) == 5:
                 out.append(("c", _num(op[1], -_C, _C), _num(op[2], -_C, _C),
                             _num(op[3], 0, 4000), _color(op[4])))
+            elif k == "i" and len(op) == 6 and images and op[1] in images:
+                out.append(("i", op[1], _num(op[2], -_C, _C), _num(op[3], -_C, _C),
+                            int(_num(op[4], 1, 8, 1)), int(_num(op[5], 0, 255, 255))))
         except Exception:
             continue
     return out
@@ -186,6 +237,8 @@ class SandboxHost:
         self._framer = ipc.Framer()
         self._out = bytearray()
         self._ops = []
+        self._imgs = {}              # name -> (w, h, rgba) declared by the child, validated
+        self._img_parts = {}         # name -> [w, h, bytearray] still arriving in strips
         self._awaiting = False
         self._frame_n = 0
         self._t_sent = 0.0
@@ -432,7 +485,8 @@ class SandboxHost:
         if t == "frame":
             if not self._awaiting or msg.get("n") != self._frame_n:
                 raise ipc.ProtocolError("unexpected frame reply")
-            self._ops = sanitize_ops(msg.get("ops"))
+            sanitize_images(msg.get("imgs"), self._imgs, self._img_parts)
+            self._ops = sanitize_ops(msg.get("ops"), self._imgs)
             self._take_logs(msg.get("logs"))
             self._awaiting = False
             return "frame"
@@ -586,5 +640,8 @@ class SandboxHost:
                     b.draw_line(op[1], op[2], op[3], op[4], op[5], op[6])
                 elif k == "c":
                     b.draw_circle(op[1], op[2], op[3], op[4])
+                elif k == "i":
+                    w, h, px = self._imgs[op[1]]
+                    b.draw_image(op[1], w, h, px, op[2], op[3], op[4], op[5])
             except Exception:
                 pass

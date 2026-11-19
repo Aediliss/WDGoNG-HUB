@@ -64,6 +64,8 @@ def make_bridge():
     b.draw_rect = lambda *a, **k: None
     b.draw_line = lambda *a, **k: None
     b.draw_circle = lambda *a, **k: None
+    b.draw_image = lambda name, w, h, rgba, x, y, scale, alpha: print(
+        "  image(%s %dx%d at %d,%d x%d)" % (name, w, h, int(x), int(y), scale))
     b.measure = lambda s, size=16: len(str(s)) * size * 0.55
     b.key_down = lambda name: False
     b.key_pressed = lambda name: False

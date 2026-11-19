@@ -24,7 +24,7 @@ import sys
 import time
 import traceback
 
-EXTRAS_API = 1                       # bump on any breaking change to ctx / hook contract
+EXTRAS_API = 2                       # bump on any breaking change to ctx / hook contract
 
 _ID_RE = re.compile(r"^[a-z0-9_]{3,32}$")
 # capabilities an extra may declare in its manifest "permissions" (v1 grantable).
@@ -194,16 +194,18 @@ def scan() -> list:
 SRC_MAX_FILES = 64
 SRC_MAX_FILE_BYTES = 512 * 1024
 SRC_MAX_TOTAL_BYTES = 2 * 1024 * 1024
+from wdgo_extras_png import IMG_MAX_BYTES, IMG_MAX_COUNT, IMG_MAX_PX, IMG_MAX_TOTAL    # noqa: E402
 
 
 def collect_sources(d) -> dict:
-    """Read an extra's code into memory: {relpath: bytes} for extra.json and every
-    *.py up to 3 directories deep. Symlinks are never followed (a hostile package
+    """Read an extra's content into memory: {relpath: bytes} for extra.json, every
+    *.py and every *.png (small images, see wdgo_extras_png) up to 3 directories deep. Symlinks are never followed (a hostile package
     must not make the root-owned host read files outside its own dir), and the
     counts/sizes are capped. Raises ValueError when a cap is exceeded."""
     import stat as _stat
     out = {}
     total = 0
+    images = [0, 0]                 # count, bytes
     root = os.path.abspath(d)
 
     def _walk(rel, depth):
@@ -223,8 +225,18 @@ def collect_sources(d) -> dict:
                 continue
             if not _stat.S_ISREG(st.st_mode):
                 continue
-            if not (nm.endswith(".py") or r == "extra.json"):
+            is_img = nm.endswith(".png")
+            if not (nm.endswith(".py") or r == "extra.json" or is_img):
                 continue
+            if is_img:
+                images[0] += 1
+                if st.st_size > IMG_MAX_BYTES:
+                    raise ValueError("image too large: %s (max %d bytes)" % (r, IMG_MAX_BYTES))
+                images[1] += st.st_size
+                if images[0] > IMG_MAX_COUNT:
+                    raise ValueError("too many images (max %d)" % IMG_MAX_COUNT)
+                if images[1] > IMG_MAX_TOTAL:
+                    raise ValueError("images too large in total (max %d bytes)" % IMG_MAX_TOTAL)
             if st.st_size > SRC_MAX_FILE_BYTES:
                 raise ValueError("source file too large: %s" % r)
             fd = os.open(p, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
@@ -571,9 +583,13 @@ class _LootCap:
 
 class ExtraContext:
     """The only object an extra talks to. Verbs only — never the raw game."""
-    def __init__(self, bridge, meta, data_dir, storage=None):
+    def __init__(self, bridge, meta, data_dir, storage=None, images=None):
         self._b = bridge
         self._meta = meta
+        # {relpath: png bytes}; None = read them from the extra's folder on first use.
+        # Decoded lazily, once, by the extra's own process (the sandbox for third parties).
+        self._img_src = images
+        self._img = {}
         self.api_version = EXTRAS_API
         # In the sandbox the child has no filesystem: storage is a broker proxy.
         self.storage = storage if storage is not None else _Storage(data_dir)
@@ -616,6 +632,32 @@ class ExtraContext:
 
     def measure(self, s, size=16):
         return self._b.measure(s, size)
+
+    # ---- images (api 2): small PNGs shipped in the extra's own folder ----
+    def _image(self, name):
+        name = str(name)
+        got = self._img.get(name)
+        if got is None:
+            if self._img_src is None:
+                self._img_src = {r: b for r, b in collect_sources(self._meta.dir).items()
+                                 if r.endswith(".png")}
+            if name not in self._img_src:
+                raise KeyError("no image '%s' in this extra" % name)
+            import wdgo_extras_png
+            got = self._img[name] = wdgo_extras_png.decode(self._img_src[name])
+        return got
+
+    def image_size(self, name):
+        """(width, height) in pixels of one of the extra's own .png files."""
+        w, h, _ = self._image(name)
+        return (w, h)
+
+    def image(self, name, x, y, scale=1, alpha=255):
+        """Draw one of the extra's own .png files (max 512x512 px) at x, y.
+        scale is a whole number 1..8 (pixels are kept crisp)."""
+        w, h, rgba = self._image(name)
+        self._b.draw_image(str(name), w, h, rgba, x, y,
+                           max(1, min(8, int(scale))), max(0, min(255, int(alpha))))
 
     # ---- input (only while the extra is active; ESC is the host's) ----
     def key_down(self, name):

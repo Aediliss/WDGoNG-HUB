@@ -72,6 +72,16 @@ def main():
             "category": m.category, "tags": m.tags, "homepage": m.homepage,
             "sha": wx.sources_hash(wx.collect_sources(d)),
         }
+        icon = os.path.join(d, "icon.png")
+        if os.path.isfile(icon) and not os.path.islink(icon):
+            import wdgo_extras_png
+            try:
+                with open(icon, "rb") as f:
+                    wdgo_extras_png.check_icon(f.read(wdgo_extras_png.ICON_MAX_BYTES + 1))
+                extras[m.id]["icon"] = True      # extras/<id>/icon.png - shown by the storefront
+            except ValueError as exc:
+                print("SKIP  %s: %s" % (eid, exc))
+                sys.exit(1)
         print("ok    %-20s v%-8s %s" % (m.id, m.version, extras[m.id]["sha"][:16]))
     out = out_rel if os.path.isabs(out_rel) else os.path.join(root, out_rel)
     os.makedirs(os.path.dirname(out), exist_ok=True)

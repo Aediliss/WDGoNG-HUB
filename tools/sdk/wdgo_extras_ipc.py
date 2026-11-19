@@ -23,6 +23,11 @@ Draw ops are compact JSON arrays; this primitive set is FROZEN for PROTO 1:
     ["r", x, y, w, h, color, fill, alpha]
     ["l", x1, y1, x2, y2, color, thick]
     ["c", x, y, r, color]
+Added with EXTRAS api 2 (host and child always ship together):
+    ["i", name, x, y, scale, alpha]      draw an image the child has declared
+and a child "frame" may carry  imgs: {name: [w, h, y0, base64(raw RGBA rows)]}  - each of
+the extra's images once, decoded IN THE CHILD and sent as strips of whole rows, in
+order from row 0. The host only checks sizes; it never parses an image file.
 
 The host treats every byte from the child as hostile: sizes are capped here and
 every op / call argument is re-validated on the host before use.
@@ -37,6 +42,7 @@ MAX_TEXT = 256                # characters in one text op
 MAX_LOGS = 8                  # log lines per frame
 MAX_LOG_LEN = 200
 MAX_CHARS = 64                # typed characters delivered per frame
+IMG_STRIP_BYTES = 96 * 1024   # raw pixel bytes of one image strip (one strip per frame)
 
 KEY_NAMES = (["up", "down", "left", "right", "enter", "space", "tab", "backspace",
               "minus", "equal", "comma", "period", "slash",

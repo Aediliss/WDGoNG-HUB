@@ -108,6 +108,7 @@ def main():
 
     # 2. files ---------------------------------------------------------------
     total = 0
+    n_png = 0
     pyfiles = []
     for base, dirs, files in os.walk(d):
         dirs[:] = [x for x in dirs if x != "__pycache__"]
@@ -130,6 +131,22 @@ def main():
             total += st.st_size
             if ext == ".py":
                 pyfiles.append((rel, p))
+            if ext == ".png":
+                n_png += 1
+                try:
+                    import wdgo_extras_png
+                    with open(p, "rb") as f:
+                        raw = f.read(wdgo_extras_png.IMG_MAX_BYTES + 1)
+                    if rel == wdgo_extras_png.ICON_NAME:
+                        iw, ih = wdgo_extras_png.check_icon(raw)
+                        OK("icon:  %s  %dx%d  %d bytes" % (rel, iw, ih, st.st_size))
+                    else:
+                        iw, ih, _ = wdgo_extras_png.decode(raw)
+                        OK("image: %s  %dx%d  %d bytes" % (rel, iw, ih, st.st_size))
+                except ValueError as exc:
+                    FAIL("image: %s - %s" % (rel, exc))
+    if n_png > wx.IMG_MAX_COUNT:
+        FAIL("files: too many images (%d, max %d)" % (n_png, wx.IMG_MAX_COUNT))
     if total > MAX_TOTAL:
         FAIL("files: extra is too large in total (%d bytes)" % total)
     try:
@@ -200,7 +217,7 @@ def main():
         sys.exit(1)
     logs = []
     b = types.SimpleNamespace()
-    b.draw_text = b.draw_rect = b.draw_line = b.draw_circle = lambda *a: None
+    b.draw_text = b.draw_rect = b.draw_line = b.draw_circle = b.draw_image = lambda *a: None
     b.measure = lambda s, size=16: len(str(s)) * size * 0.6
     b.key_down = b.key_pressed = lambda n: False
     b.chars = lambda: []

@@ -31,7 +31,8 @@
   .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px}
   .card{background:var(--panel);border:1px solid var(--edge);border-radius:10px;padding:16px;
     display:flex;flex-direction:column;gap:9px}
-  .card h2{margin:0;font-size:18px;color:var(--hi)}
+  .card h2{margin:0;font-size:18px;color:var(--hi);display:flex;align-items:center;gap:10px}
+  .xicon{width:40px;height:40px;border-radius:6px;image-rendering:pixelated;flex:none}
   .meta{color:var(--dim);font-size:13px}
   .desc{color:var(--txt)}
   .tags{display:flex;gap:6px;flex-wrap:wrap}
@@ -135,7 +136,7 @@ function render(list){
     var home=httpOnly(e.homepage), r=rating(e.id);
     var c=document.createElement("div"); c.className="card";
     c.innerHTML=
-      '<h2>'+esc(e.name||e.id)+'</h2>'+
+      '<h2>'+(e.icon===true?'<img class="xicon" src="extras/'+encodeURIComponent(e.id)+'/icon.png" width="40" height="40" alt="" loading="lazy">':'')+esc(e.name||e.id)+'</h2>'+
       '<div class="meta">v'+esc(e.version||"?")+' &middot; by '+esc(e.author||"?")+' &middot; '+esc(e.category||"misc")+'</div>'+
       '<div class="desc">'+esc(e.description||"")+'</div>'+
       (tags?'<div class="tags">'+tags+'</div>':'')+
