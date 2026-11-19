@@ -5,6 +5,8 @@ request, passed the automated checks, was read by a maintainer, and is listed in
 **signed** catalogue. The game installs an extra only if the catalogue's signature
 is valid and the files match the checksum in it — and then still runs it sandboxed.
 
+**Browse the store:** <https://locosp.github.io/WDGoNG-HUB/>
+
 ## Submit an extra
 
 1. Write it against the author guide ([`docs/AUTHORING.md`](docs/AUTHORING.md)), start from
@@ -38,10 +40,10 @@ Votes are not a security review: an extra with many bananas still runs sandboxed
 
 ## Website
 
-`index.html` is the public storefront: it reads the signed `index.json` and lists every
-extra with a link to its reviewed source here. Enable it once in the repo settings:
-**Settings > Pages > Deploy from a branch > `main` / `(root)`**. The game does not use
-the website - it installs via git, the signature and the checksums.
+The store at <https://locosp.github.io/WDGoNG-HUB/> (`index.html` in this repo) reads the
+signed `index.json` and lists every extra with its ratings and a link to its reviewed
+source here. It is a shop window only: the game does not use the website - it installs
+via git, the signature and the checksums.
 
 ## Layout
 

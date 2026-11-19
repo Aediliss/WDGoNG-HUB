@@ -235,14 +235,18 @@ See `examples/gps_speedo/` — a complete, commented extra (manifest + `main.py`
 that reads the GPS fix, computes speed, draws it, and handles a key. Copy it as a starting
 point.
 
-## 10. Versioning & the future hub
+## 10. Versioning & publishing to the hub
 
 - Your extra declares `api`. When the game bumps `EXTRAS_API`, old extras keep running
   (back-compat shims); an extra built for a newer game than installed is shown disabled
   with *"needs a newer game — run [U]"*.
 - The **hub** accepts extras via **GitHub pull request**: CI (`hub_check.py`) validates the
   manifest, scans imports/forbidden calls/permissions and smoke-runs the extra in the
-  sandbox; a maintainer reviews; on merge the catalogue is rebuilt and signed. Run the same
+  sandbox; a maintainer reviews and merges; the maintainer then signs the catalogue
+  (offline) and publishes the release - that is when players see it. Run the same
   check yourself before submitting:
   `python3 tools/hub_check.py ~/.wdgo/extras/<id>`. Your
   `description`/`about`/`category`/`tags` are the hub listing — write them well.
+- An update is a new pull request that changes your folder and bumps `version`. If it
+  asks for a permission the previous version did not have, players are shown the
+  consent card again before it runs.
