@@ -14,6 +14,7 @@ SPARK_BUCKET_S = 30.0     # one sparkline bar per 30 s ...
 SPARK_BARS = 20           # ... for the last 10 minutes
 MIN_STEP_M = 8.0          # ignore GPS jitter smaller than this
 MAX_KMH = 250.0           # ignore jumps implying more than this
+STILL_S = 30.0            # no 8 m of movement for this long = parked (~1 km/h still counts)
 SAVE_EVERY_S = 15.0
 POLL_S = 1.0
 
@@ -45,7 +46,8 @@ class Extra:
 
     def on_enter(self, ctx):
         self.gps, self.loot = ctx.gps, ctx.loot
-        self.last_fix = None          # (lat, lon, t) of the last accepted point
+        self.last_fix = None          # (lat, lon, t) distance anchor: last point that counted
+        self.prev_fix = None          # (lat, lon, t) previous raw sample, for jump detection
         self.speed = 0.0
         self.samples = []             # (t, trip_nets) for the rolling rate
         self.spark = []               # per-bucket new-net counts
@@ -53,7 +55,8 @@ class Extra:
         self.bucket_n = 0
         self.last_poll = -POLL_S
         self.msg = ("", 0.0)
-        self._poll(ctx)               # pick up nets collected while the screen was closed
+        self._poll(ctx)               # pick up nets collected while the screen was closed ...
+        self.bucket_n = 0             # ... into the trip total, not into this 30 s bar
 
     def _save(self, ctx):
         ctx.storage.write_json("trip.json", {"metric": self.metric, "trip": self.trip})
@@ -63,7 +66,10 @@ class Extra:
     def _poll(self, ctx):
         if self.loot is None:
             return
-        c = int(self.loot.counts().get("networks", 0))
+        counts = self.loot.counts()
+        if "networks" not in counts:  # failed read ({}): keep the baseline, try again next poll
+            return
+        c = int(counts["networks"])
         last = self.trip.get("last_count")
         if last is not None and c >= last:
             d = c - last
@@ -75,28 +81,34 @@ class Extra:
     def _gps(self, ctx, now):
         fix = self.gps.fix() if self.gps is not None else None
         if not fix or not fix.get("valid"):
-            self.last_fix = None
+            self.last_fix = self.prev_fix = None
             self.speed *= 0.9
             return None
         lat, lon = fix["lat"], fix["lon"]
+        rep = fix.get("speed_kmh")
         if self.last_fix is None:
-            self.last_fix = (lat, lon, now)
-        else:
-            dts = now - self.last_fix[2]
-            if dts >= 1.0:
+            self.last_fix = self.prev_fix = (lat, lon, now)
+        elif now - self.prev_fix[2] >= 1.0:
+            # jump check against the previous raw sample, not the (possibly old) anchor
+            step = _haversine_km(self.prev_fix[0], self.prev_fix[1], lat, lon)
+            if step / (now - self.prev_fix[2]) * 3600.0 > MAX_KMH:
+                self.last_fix = self.prev_fix = (lat, lon, now)     # GPS glitch: re-anchor
+            else:
+                self.prev_fix = (lat, lon, now)
                 km = _haversine_km(self.last_fix[0], self.last_fix[1], lat, lon)
-                kmh = km / dts * 3600.0
-                if kmh > MAX_KMH:                      # a GPS jump - re-anchor, don't count it
-                    self.last_fix = (lat, lon, now)
-                elif km * 1000.0 >= MIN_STEP_M:
+                held = now - self.last_fix[2]
+                if km * 1000.0 >= MIN_STEP_M:
+                    # counts even when it took many seconds to get here (slow driving)
                     self.trip["km"] += km
-                    self.speed = self.speed * 0.5 + kmh * 0.5
+                    self.speed = self.speed * 0.5 + (km / held * 3600.0) * 0.5
                     self.last_fix = (lat, lon, now)
-                elif dts >= 3.0:                       # sitting still
-                    self.speed *= 0.5
-                    self.last_fix = (lat, lon, now)
-        rep = fix.get("speed_kmh") or 0.0
-        if rep > 0.5:                                  # trust the receiver's own speed when it has one
+                elif held >= 3.0:
+                    self.speed *= 0.5                                # not moving much: decay the display
+                    if held >= STILL_S:
+                        # parked: drop the anchor so slow GPS drift never adds up to "distance"
+                        # (the game reports speed 0 when unknown, so it can't be used for this)
+                        self.last_fix = (lat, lon, now)
+        if rep is not None and rep > 0.5:      # trust the receiver's own speed when it has one
             self.speed = self.speed * 0.4 + rep * 0.6
         return fix
 
