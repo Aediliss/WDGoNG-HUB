@@ -44,7 +44,7 @@ class Extra:
     @staticmethod
     def _new_trip():
         return {"nets": 0, "km": 0.0, "secs": 0.0, "best_rate": 0, "last_count": None,
-                "session_sample": None}
+                "session_sample": None, "since_check": 0}
 
     def on_enter(self, ctx):
         self.gps, self.loot = ctx.gps, ctx.loot
@@ -91,16 +91,28 @@ class Extra:
             return
         c = int(counts["networks"])
         last = self.trip.get("last_count")
-        restarted = last is not None and c < last          # count went down: new session
-        if check_session or restarted:
-            cleared = self._list_was_cleared(c)
-            if cleared:
-                restarted = True                           # new session that already outgrew the old count
+        dropped = last is not None and c < last            # count went down: new session
+        cleared = None
+        if check_session or dropped:
+            cleared = self._list_was_cleared(c)            # True / False / None (can't tell)
+        # networks credited by plain count polls since the last confirmed list check
+        since = int(self.trip.get("since_check") or 0)
         if last is not None:
-            # after a restart the new session's list began at zero, so all c are new
-            d = c if restarted else c - last
+            if dropped:
+                d = c                                      # list restarted at zero: all c are new
+            elif cleared:
+                # the list was cleared sometime after the last confirmed check, and the
+                # 1 s count polls in between may already have credited part of the new
+                # session - credit only the rest (never double-count; at worst a few
+                # finds of the old session from those seconds go uncounted)
+                d = max(0, c - since)
+            else:
+                d = c - last
             self.trip["nets"] += d
             self.bucket_n += d
+        else:
+            d = 0
+        self.trip["since_check"] = 0 if cleared is not None else since + d
         self.trip["last_count"] = c
 
     def _gps(self, ctx, now):
@@ -239,6 +251,7 @@ class Extra:
                      w // 2 + 20, sy + 28, 16, "dim")
 
     def on_exit(self, ctx):
+        self._poll(ctx, check_session=True)   # confirm the session as we leave, for the next visit
         self._save(ctx)
 
     def on_unload(self, ctx):
