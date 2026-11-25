@@ -71,11 +71,12 @@ class Extra:
             return
         c = int(counts["networks"])
         last = self.trip.get("last_count")
-        if last is not None and c >= last:
-            d = c - last
+        if last is not None:
+            # c < last: the game started a new session and its list restarted from zero,
+            # so everything in it now is new since the last read
+            d = c - last if c >= last else c
             self.trip["nets"] += d
             self.bucket_n += d
-        # c < last: the game started a new session and its list reset - just re-anchor
         self.trip["last_count"] = c
 
     def _gps(self, ctx, now):
@@ -188,14 +189,15 @@ class Extra:
         sy = h - foot + 6
         sh = 44
         ctx.text("last 10 min", pad, sy, 14, "dim")
-        bars = self.spark + [self.bucket_n]
+        bars = (self.spark + [self.bucket_n])[-(SPARK_BARS + 1):]   # history + the current bar
         peak = max([1] + bars)
-        bw = max(4, (w // 2 - 120) // SPARK_BARS)
-        for i, n in enumerate(bars[-(SPARK_BARS + 1):]):
+        gap, x0 = 2, pad + 100
+        avail = (w // 2 + 10) - x0                                   # stop short of the GPS text
+        bw = max(1, (avail - gap * SPARK_BARS) // (SPARK_BARS + 1))  # 21 bars, 20 gaps
+        for i, n in enumerate(bars):
             bh = int(sh * n / peak)
-            bx = pad + 100 + i * (bw + 2)
-            ctx.rect(bx, sy + sh - bh, bw, max(1, bh), "success" if i == len(bars) - 1 else "teal",
-                     fill=True)
+            ctx.rect(x0 + i * (bw + gap), sy + sh - bh, bw, max(1, bh),
+                     "success" if i == len(bars) - 1 else "teal", fill=True)
 
         gps_txt = ("GPS OK  %d sats" % fix.get("sats", 0)) if fix else "NO GPS FIX - distance & speed paused"
         ctx.text(gps_txt, w // 2 + 20, sy, 18, "success" if fix else "warn", bold=True)
