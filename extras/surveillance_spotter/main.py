@@ -14,8 +14,14 @@ Detection is tiered, because a vendor MAC prefix alone is NOT proof of a camera
 Known look-alikes (ClickShare, WiFi-Direct printers, Android hotspots, other
 detectors' "Flock ALPR [...]" output) are excluded before matching.
 
+Positions are only ever taken from the moment a network is first seen while this
+screen is open. Networks already in the wardrive list when you open the screen
+are "backlog": their capture position and time are unknown to an extra, so they
+are recorded without a position and never re-counted or moved.
+
 Pure stdlib + ctx. Permissions: gps, loot_read, loot_write.
 """
+import json
 import time
 
 # ---- detection rules -------------------------------------------------------
@@ -42,8 +48,13 @@ TIER_RANK = {"CONFIRMED": 0, "SUSPECT": 1, "KEYWORD": 2, "WEAK": 3}
 
 POLL_S = 2.0           # how often to re-read the loot list (each read is an IPC call)
 ALERT_S = 8.0          # how long the big alert banner stays up
-HISTORY_MAX = 1500     # keep the storage file well under the 256 KB cap
+HISTORY_MAX = 1500     # soft cap on records
+STATE_MAX_BYTES = 200 * 1024   # the sandbox refuses files over 256 KiB - keep a margin
 SAVE_EVERY_S = 10.0
+LOG_PER_FRAME = 2      # sandbox accepts 8 ctx.log calls per frame ...
+LOG_BURST = 25         # ... and the host 30 per 10 s - stay under both
+LOG_WINDOW_S = 10.0
+FORMULA_LEAD = ("=", "+", "-", "@")
 
 
 def _norm_mac(b):
@@ -77,8 +88,14 @@ def _stamp():
 
 
 def _csv_field(v):
+    """CSV-escape one cell. Text cells that a spreadsheet would run as a formula
+    (SSIDs are chosen by whoever owns the AP) get a leading apostrophe; numbers
+    such as negative longitudes are left alone."""
+    if isinstance(v, str) and (v.lstrip().startswith(FORMULA_LEAD)
+                               or v.startswith(("\t", "\r", "\n"))):
+        v = "'" + v
     v = str(v)
-    if any(c in v for c in ',"\n'):
+    if any(c in v for c in ',"\r\n'):
         v = '"' + v.replace('"', '""') + '"'
     return v
 
@@ -95,9 +112,15 @@ class Extra:
     def on_enter(self, ctx):
         self.gps = ctx.gps
         self.loot = ctx.loot
-        self.seen = set()            # bssids already classified this visit
-        self.counted = set()         # bssids whose sighting was already counted this visit
-        self.session = []            # bssids hit since you opened the screen
+        self.seen = set()            # keys already classified (reset when the rules change)
+        self.counted = set()         # keys whose sighting was already counted this visit
+        self.obs = {}                # key -> (lat, lon, stamp) when first seen this visit;
+                                     #        (None, None, None) for backlog entries
+        self.baselined = False       # first poll of a visit = backlog
+        self.session = []            # keys flagged since you opened the screen
+        self.logq = []               # pending (msg, level) terminal lines
+        self.log_t0, self.log_n = 0.0, 0
+        self.save_failed = False
         self.checked = 0
         self.last_poll = -POLL_S
         self.alert = None            # (record, until)
@@ -106,16 +129,59 @@ class Extra:
         self.msg = ("", 0.0)
 
     # ---- helpers -----------------------------------------------------------
+    def _state_text(self):
+        return json.dumps({"history": self.history, "keywords": self.keywords,
+                           "include_weak": self.include_weak}, separators=(",", ":"))
+
     def _save(self, ctx, force=False):
         if not self.dirty and not force:
             return
-        if len(self.history) > HISTORY_MAX:   # drop the oldest-seen records
-            keep = sorted(self.history.items(), key=lambda kv: kv[1].get("last", ""))[-HISTORY_MAX:]
-            self.history = dict(keep)
-        ctx.storage.write_json("state.json", {"history": self.history, "keywords": self.keywords,
-                                              "include_weak": self.include_weak})
-        self.dirty = False
         self.last_save = ctx.now()
+        if len(self.history) > HISTORY_MAX:
+            self._trim(len(self.history) - HISTORY_MAX)
+        text = self._state_text()
+        while len(text.encode("utf-8")) > STATE_MAX_BYTES and self.history:
+            # drop the oldest-seen ~5% (at least one) until the file fits the quota
+            self._trim(max(1, len(self.history) // 20))
+            text = self._state_text()
+        if ctx.storage.write("state.json", text):
+            self.dirty = False                 # only a successful write clears it
+            self.save_failed = False
+        else:
+            self.save_failed = True            # keep dirty: retried on the next save tick
+            self._note(ctx, "could not save history - will retry")
+
+    def _trim(self, n):
+        """Drop the n records with the oldest last-seen time (weakest tiers first on ties)."""
+        order = sorted(self.history.items(),
+                       key=lambda kv: (kv[1].get("last", ""), -TIER_RANK.get(kv[1].get("tier"), 9)))
+        for k, _ in order[:n]:
+            del self.history[k]
+        self.session = [k for k in self.session if k in self.history]
+
+    def _log(self, msg, level):
+        self.logq.append((msg, level))
+        if len(self.logq) > 200:               # never grow without bound
+            self.logq = self.logq[-200:]
+
+    def _drain_logs(self, ctx):
+        now = ctx.now()
+        if now - self.log_t0 >= LOG_WINDOW_S:
+            self.log_t0, self.log_n = now, 0
+        sent = 0
+        while self.logq and sent < LOG_PER_FRAME and self.log_n < LOG_BURST:
+            msg, level = self.logq.pop(0)
+            ctx.log(msg, level)
+            sent += 1
+            self.log_n += 1
+
+    def _alert(self, ctx, rec, tier, reason, suffix):
+        if tier not in ("CONFIRMED", "SUSPECT", "KEYWORD"):
+            return
+        self.alert = (rec, ctx.now() + ALERT_S)
+        self._log("%s %s %s (%s)%s" % (tier, rec.get("ssid") or "<hidden>", rec.get("bssid", ""),
+                                       reason, suffix),
+                  "warn" if tier != "CONFIRMED" else "error")
 
     def _note(self, ctx, text):
         self.msg = (text, ctx.now() + 4.0)
@@ -124,10 +190,23 @@ class Extra:
         if self.loot is None:
             return
         fix = self.gps.fix() if self.gps is not None else None
-        good = bool(fix and fix.get("valid"))
-        for n in self.loot.networks():
+        live = bool(fix and fix.get("valid"))
+        backlog = not self.baselined
+        nets = self.loot.networks()
+        self.baselined = True                  # an empty list at open = nothing in the backlog
+        now = _stamp()
+        for n in nets:
             b = _norm_mac(n.get("bssid", ""))
             key = b or ("ssid:" + n.get("ssid", ""))
+            if key not in self.obs:
+                # remember WHERE/WHEN we first saw it, so a later re-check (new watch
+                # word, weak toggle) uses the observation, not wherever we are now
+                if backlog:
+                    self.obs[key] = (None, None, None)
+                elif live:
+                    self.obs[key] = (round(fix["lat"], 6), round(fix["lon"], 6), now)
+                else:
+                    self.obs[key] = (None, None, now)
             if key in self.seen:
                 continue
             self.seen.add(key)
@@ -136,37 +215,49 @@ class Extra:
             if not hit:
                 continue
             tier, reason = hit
-            now = _stamp()
+            lat, lon, when = self.obs[key]
             rec = self.history.get(key)
-            if rec is None:
+            new = rec is None
+            if new:
                 rec = {"bssid": b, "ssid": n.get("ssid", ""), "tier": tier, "reason": reason,
-                       "channel": n.get("channel", 0), "first": now, "last": now,
+                       "channel": n.get("channel", 0), "first": when or "", "last": when or "",
                        "sightings": 0, "lat": None, "lon": None}
+                if when is None:
+                    rec["note"] = "in wardrive list before screen opened - position unknown"
                 self.history[key] = rec
-                new = True
-            else:
-                new = False
-            if key in self.counted:        # a re-check (new watch word / weak toggle), not a new sighting
-                if TIER_RANK.get(tier, 9) < TIER_RANK.get(rec.get("tier"), 9):
-                    rec["tier"], rec["reason"] = tier, reason
+            promoted = TIER_RANK.get(tier, 9) < TIER_RANK.get(rec.get("tier"), 9)
+            if promoted:
+                rec["tier"], rec["reason"] = tier, reason
+            if key not in self.session and (new or promoted or key not in self.counted):
+                self.session.insert(0, key)
+            if key in self.counted:
+                # a re-check of something already counted this visit: no new sighting,
+                # but an upgrade to an alerting tier is news
+                if promoted:
                     self.dirty = True
+                    self._alert(ctx, rec, tier, reason, " - upgraded")
                 continue
             self.counted.add(key)
-            rec["sightings"] = int(rec.get("sightings", 0)) + 1
-            rec["last"] = now
+            if when is None and not new:
+                # backlog entry we already have on file: leave its count/position alone
+                if promoted:
+                    self.dirty = True
+                    self._alert(ctx, rec, tier, reason, " - upgraded")
+                continue
+            if when is None:                   # new backlog find: one sighting, time/place unknown
+                rec["sightings"] = max(1, int(rec.get("sightings", 0)))
+            else:                              # a real observation made while open
+                rec["sightings"] = int(rec.get("sightings", 0)) + 1
+                rec["last"] = when
+                if not rec.get("first"):
+                    rec["first"] = when
+                if lat is not None:
+                    rec["lat"], rec["lon"] = lat, lon
+                    rec.pop("note", None)
             rec["ssid"] = n.get("ssid", "") or rec.get("ssid", "")
-            if TIER_RANK.get(tier, 9) < TIER_RANK.get(rec.get("tier"), 9):
-                rec["tier"], rec["reason"] = tier, reason
-            if good:
-                rec["lat"], rec["lon"] = round(fix["lat"], 6), round(fix["lon"], 6)
-            if key not in self.session:
-                self.session.insert(0, key)
             self.dirty = True
-            if tier in ("CONFIRMED", "SUSPECT", "KEYWORD"):
-                self.alert = (rec, ctx.now() + ALERT_S)
-                ctx.log("%s %s %s (%s)%s" % (tier, rec["ssid"] or "<hidden>", b, reason,
-                                              "" if new else " - seen before"),
-                        "warn" if tier != "CONFIRMED" else "error")
+            self._alert(ctx, rec, tier, reason,
+                        " - seen before" if not new else (" - no position (backlog)" if when is None else ""))
 
     def _export(self, ctx):
         if ctx.loot_save is None:
@@ -240,6 +331,7 @@ class Extra:
             self._poll(ctx)
         if self.dirty and now - self.last_save >= SAVE_EVERY_S:
             self._save(ctx)
+        self._drain_logs(ctx)
 
         w, h = ctx.w, ctx.h
         if self.loot is None:
@@ -267,7 +359,7 @@ class Extra:
             ctx.rect(6, y, w - 12, 92, col, fill=False)
             ctx.text("%s: %s" % (r.get("tier"), r.get("ssid") or "<hidden SSID>"),
                      18, y + 8, 34, col, bold=True)
-            pos = ("%.5f, %.5f" % (r["lat"], r["lon"])) if r.get("lat") is not None else "no GPS"
+            pos = ("%.5f, %.5f" % (r["lat"], r["lon"])) if r.get("lat") is not None else "no position"
             ctx.text("%s   ch %s   %s   %s   seen %dx" % (r.get("bssid", ""), r.get("channel", "?"),
                                                          r.get("reason", ""), pos,
                                                          r.get("sightings", 1)),
@@ -277,12 +369,14 @@ class Extra:
         ctx.text("THIS SESSION", 10, y, 16, "teal", bold=True)
         y += 24
         row_h = 24
+        visible = [k for k in self.session
+                   if self.include_weak or self.history.get(k, {}).get("tier") != "WEAK"]
         rows_fit = max(1, (h - y - 70) // row_h)
-        self.scroll = min(self.scroll, max(0, len(self.session) - rows_fit))
-        if not self.session:
+        self.scroll = min(self.scroll, max(0, len(visible) - rows_fit))
+        if not visible:
             ctx.text("nothing flagged yet - start a WiFi wardrive and keep driving",
                      10, y, 16, "dim")
-        for key in self.session[self.scroll:self.scroll + rows_fit]:
+        for key in visible[self.scroll:self.scroll + rows_fit]:
             r = self.history.get(key)
             if not r:
                 continue
@@ -290,7 +384,7 @@ class Extra:
             ctx.text("%-9s" % r.get("tier"), 10, y, 16, col, bold=True)
             ctx.text((r.get("ssid") or "<hidden>")[:26], 120, y, 16, "hi")
             ctx.text(r.get("bssid", ""), 420, y, 16, "txt")
-            ctx.text(r.get("last", "")[11:], 610, y, 16, "dim")
+            ctx.text(r.get("last", "")[11:] or "backlog", 610, y, 16, "dim")
             ctx.text(r.get("reason", "")[:40], 700, y, 16, "dim")
             y += row_h
 
