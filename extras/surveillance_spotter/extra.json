@@ -3,7 +3,7 @@
     "id": "surveillance_spotter",
     "name": "Surveillance Spotter",
     "author": "aedilis",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "api": 2,
     "entry": "main:Extra",
     "permissions": [

@@ -64,11 +64,17 @@ def _norm_mac(b):
     return b
 
 
+def is_excluded(ssid):
+    """A known look-alike (printer, screen-share, hotspot, another detector's output)."""
+    sl = (ssid or "").strip().lower()
+    return any(x in sl for x in EXCLUDE_SUBSTR)
+
+
 def classify(ssid, bssid, keywords, include_weak):
     """-> (tier, reason) or None."""
     s = (ssid or "").strip()
     sl = s.lower()
-    if any(x in sl for x in EXCLUDE_SUBSTR):
+    if is_excluded(s):
         return None
     if sl in CONFIRM_EXACT or any(sl.startswith(p) for p in CONFIRM_PREFIX):
         return ("CONFIRMED", "SSID '%s'" % s)
@@ -160,6 +166,18 @@ class Extra:
             del self.history[k]
         self.session = [k for k in self.session if k in self.history]
 
+    def _withdraw(self, ctx, key, ssid):
+        rec = self.history.pop(key, None)
+        if rec is None:
+            return
+        self.session = [k for k in self.session if k != key]
+        self.counted.discard(key)
+        if self.alert and self.alert[0] is rec:
+            self.alert = None
+        self.dirty = True
+        self._log("dropped %s %s - now named '%s', a known look-alike"
+                  % (rec.get("tier", ""), rec.get("bssid", ""), ssid), "info")
+
     def _log(self, msg, level):
         self.logq.append((msg, level))
         if len(self.logq) > 200:               # never grow without bound
@@ -211,6 +229,13 @@ class Extra:
             ssid_now = n.get("ssid", "")
             if key in self.seen and self.seen[key] == ssid_now:
                 continue
+            if (key in self.history and is_excluded(ssid_now)
+                    and self.history[key].get("ssid", "") != ssid_now):
+                # e.g. a hidden AP flagged by its MAC prefix turns out to be a
+                # "DIRECT-..." printer: an explicit look-alike, so withdraw the detection.
+                # (Records that stop matching only because weak matches or a watch word
+                # were switched off are kept - those never reach this branch.)
+                self._withdraw(ctx, key, ssid_now)
             if key not in self.seen:
                 self.checked += 1
             # a hidden network whose name the scan learns later is classified again
