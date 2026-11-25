@@ -287,17 +287,26 @@ class Extra:
                     rec["first"] = when
                 if lat is not None:
                     rec["lat"], rec["lon"] = lat, lon
+                    rec["pos_time"] = when             # the position belongs to THIS sighting
                     rec.pop("note", None)
             rec["ssid"] = n.get("ssid", "") or rec.get("ssid", "")
             self.dirty = True
             self._alert(ctx, rec, tier, reason,
                         " - seen before" if not new else (" - no position (backlog)" if when is None else ""))
 
+    @staticmethod
+    def _pos_time(r):
+        """When the stored position was taken. Records from 1.0.0-1.0.3 have no
+        pos_time; their position came from their last fixed sighting, unknown which."""
+        return r.get("pos_time", "") if r.get("lat") is not None else ""
+
     def _export(self, ctx):
         if ctx.loot_save is None:
             self._note(ctx, "export needs the loot_write permission")
             return
-        cols = ["tier", "ssid", "bssid", "reason", "channel", "lat", "lon",
+        # lat/lon are the last position we HAD a fix for; position_time says which
+        # sighting that was (it can be older than last_seen if later sightings had no fix)
+        cols = ["tier", "ssid", "bssid", "reason", "channel", "lat", "lon", "position_time",
                 "first_seen", "last_seen", "sightings"]
         rows = [",".join(cols)]
         recs = sorted(self.history.values(),
@@ -306,7 +315,7 @@ class Extra:
             rows.append(",".join(_csv_field(x) for x in (
                 r.get("tier"), r.get("ssid", ""), r.get("bssid", ""), r.get("reason", ""),
                 r.get("channel", 0), "" if r.get("lat") is None else r["lat"],
-                "" if r.get("lon") is None else r["lon"], r.get("first", ""),
+                "" if r.get("lon") is None else r["lon"], self._pos_time(r), r.get("first", ""),
                 r.get("last", ""), r.get("sightings", 0))))
         name = "spotter_%s.csv" % time.strftime("%Y%m%d_%H%M%S", time.localtime())
         p = ctx.loot_save(name, "\n".join(rows) + "\n")
@@ -389,16 +398,22 @@ class Extra:
         if self.alert and now < self.alert[1]:
             r = self.alert[0]
             col = TIER_COLOR.get(r.get("tier"), "warn")
-            ctx.rect(6, y, w - 12, 92, col, fill=True, alpha=70)
-            ctx.rect(6, y, w - 12, 92, col, fill=False)
+            ctx.rect(6, y, w - 12, 112, col, fill=True, alpha=70)
+            ctx.rect(6, y, w - 12, 112, col, fill=False)
             ctx.text("%s: %s" % (r.get("tier"), r.get("ssid") or "<hidden SSID>"),
                      18, y + 8, 34, col, bold=True)
-            pos = ("%.5f, %.5f" % (r["lat"], r["lon"])) if r.get("lat") is not None else "no position"
-            ctx.text("%s   ch %s   %s   %s   seen %dx" % (r.get("bssid", ""), r.get("channel", "?"),
-                                                         r.get("reason", ""), pos,
-                                                         r.get("sightings", 1)),
-                     18, y + 54, 17, "txt")
-            y += 104
+            if r.get("lat") is None:
+                pos = "no position"
+            elif self._pos_time(r) and self._pos_time(r) != r.get("last"):
+                # seen now without a fix: don't present the old coordinates as current
+                pos = "no fix now - last known %.5f, %.5f (%s)" % (r["lat"], r["lon"], self._pos_time(r))
+            else:
+                pos = "%.5f, %.5f" % (r["lat"], r["lon"])
+            ctx.text("%s   ch %s   %s   seen %dx" % (r.get("bssid", ""), r.get("channel", "?"),
+                                                    r.get("reason", ""), r.get("sightings", 1)),
+                     18, y + 52, 17, "txt")
+            ctx.text(pos, 18, y + 80, 17, "txt" if "no fix now" not in pos else "warn")
+            y += 124
 
         ctx.text("THIS SESSION", 10, y, 16, "teal", bold=True)
         y += 24
