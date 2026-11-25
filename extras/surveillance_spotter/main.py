@@ -112,7 +112,8 @@ class Extra:
     def on_enter(self, ctx):
         self.gps = ctx.gps
         self.loot = ctx.loot
-        self.seen = set()            # keys already classified (reset when the rules change)
+        self.seen = {}               # key -> SSID it was classified with (cleared when the
+                                     #        rules change; a changed SSID is re-checked)
         self.counted = set()         # keys whose sighting was already counted this visit
         self.obs = {}                # key -> (lat, lon, stamp) when first seen this visit;
                                      #        (None, None, None) for backlog entries
@@ -207,10 +208,13 @@ class Extra:
                     self.obs[key] = (round(fix["lat"], 6), round(fix["lon"], 6), now)
                 else:
                     self.obs[key] = (None, None, now)
-            if key in self.seen:
+            ssid_now = n.get("ssid", "")
+            if key in self.seen and self.seen[key] == ssid_now:
                 continue
-            self.seen.add(key)
-            self.checked += 1
+            if key not in self.seen:
+                self.checked += 1
+            # a hidden network whose name the scan learns later is classified again
+            self.seen[key] = ssid_now
             hit = classify(n.get("ssid", ""), b, self.keywords, self.include_weak)
             if not hit:
                 continue
@@ -230,6 +234,9 @@ class Extra:
                 rec["tier"], rec["reason"] = tier, reason
             if key not in self.session and (new or promoted or key not in self.counted):
                 self.session.insert(0, key)
+            if ssid_now and rec.get("ssid") != ssid_now:
+                rec["ssid"] = ssid_now                 # e.g. a hidden network now named
+                self.dirty = True
             if key in self.counted:
                 # a re-check of something already counted this visit: no new sighting,
                 # but an upgrade to an alerting tier is news
@@ -249,6 +256,8 @@ class Extra:
             else:                              # a real observation made while open
                 rec["sightings"] = int(rec.get("sightings", 0)) + 1
                 rec["last"] = when
+                if n.get("channel"):
+                    rec["channel"] = n.get("channel")
                 if not rec.get("first"):
                     rec["first"] = when
                 if lat is not None:
@@ -293,7 +302,7 @@ class Extra:
                 w = self.typing.strip().lower()
                 if w and w not in self.keywords and len(self.keywords) < 20:
                     self.keywords.append(w)
-                    self.seen = set()          # re-check this session's nets
+                    self.seen = {}             # re-check this session's nets
                     self.dirty = True
                     self._note(ctx, "watching for '%s'" % w)
                 self.typing = None
@@ -303,7 +312,7 @@ class Extra:
             ctx.chars()                        # drop the 'k' itself
         elif ctx.key_pressed("w"):
             self.include_weak = not self.include_weak
-            self.seen = set()
+            self.seen = {}
             self.dirty = True
             self._note(ctx, "weak vendor matches %s" % ("ON" if self.include_weak else "OFF"))
         elif ctx.key_pressed("e"):
