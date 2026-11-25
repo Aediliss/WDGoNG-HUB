@@ -17,6 +17,7 @@ MAX_KMH = 250.0           # ignore jumps implying more than this
 STILL_S = 30.0            # no 8 m of movement for this long = parked (~1 km/h still counts)
 SAVE_EVERY_S = 15.0
 POLL_S = 1.0
+SESSION_CHECK_S = 5.0     # how often to compare the list itself (an IPC read of up to 500 rows)
 
 
 def _haversine_km(a_lat, a_lon, b_lat, b_lon):
@@ -42,7 +43,8 @@ class Extra:
 
     @staticmethod
     def _new_trip():
-        return {"nets": 0, "km": 0.0, "secs": 0.0, "best_rate": 0, "last_count": None}
+        return {"nets": 0, "km": 0.0, "secs": 0.0, "best_rate": 0, "last_count": None,
+                "session_sample": None}
 
     def on_enter(self, ctx):
         self.gps, self.loot = ctx.gps, ctx.loot
@@ -54,8 +56,9 @@ class Extra:
         self.bucket_t = ctx.now()
         self.bucket_n = 0
         self.last_poll = -POLL_S
+        self.last_session_check = -SESSION_CHECK_S
         self.msg = ("", 0.0)
-        self._poll(ctx)               # pick up nets collected while the screen was closed ...
+        self._poll(ctx, check_session=True)   # pick up nets collected while closed ...
         self.bucket_n = 0             # ... into the trip total, not into this 30 s bar
 
     def _save(self, ctx):
@@ -63,7 +66,24 @@ class Extra:
         self.last_save = ctx.now()
 
     # ---- data --------------------------------------------------------------
-    def _poll(self, ctx):
+    def _list_was_cleared(self, c):
+        """True if the game's network list was cleared (a new scan/wardrive started)
+        since the last check, False if not, None if it can't tell right now.
+
+        Within one session the list holds every network seen exactly once (re-seen
+        ones are moved to the end, never dropped), so all networks remembered from
+        the last check are still in it - unless the list was cleared. That only
+        works while the whole list is visible to extras (they get the first 500)."""
+        nets = self.loot.networks()
+        if len(nets) != c or c >= 500:
+            return None                                    # partial view or failed read
+        keys = set(n.get("bssid") or ("ssid:" + (n.get("ssid") or "")) for n in nets)
+        sample = self.trip.get("session_sample")
+        cleared = bool(sample) and not set(sample) <= keys
+        self.trip["session_sample"] = sorted(keys)[:40]
+        return cleared
+
+    def _poll(self, ctx, check_session=False):
         if self.loot is None:
             return
         counts = self.loot.counts()
@@ -71,10 +91,14 @@ class Extra:
             return
         c = int(counts["networks"])
         last = self.trip.get("last_count")
+        restarted = last is not None and c < last          # count went down: new session
+        if check_session or restarted:
+            cleared = self._list_was_cleared(c)
+            if cleared:
+                restarted = True                           # new session that already outgrew the old count
         if last is not None:
-            # c < last: the game started a new session and its list restarted from zero,
-            # so everything in it now is new since the last read
-            d = c - last if c >= last else c
+            # after a restart the new session's list began at zero, so all c are new
+            d = c if restarted else c - last
             self.trip["nets"] += d
             self.bucket_n += d
         self.trip["last_count"] = c
@@ -135,13 +159,16 @@ class Extra:
             self.trip = self._new_trip()
             self.samples, self.spark, self.bucket_n = [], [], 0
             self.last_fix = None
-            self._poll(ctx)
+            self._poll(ctx, check_session=True)
             self._save(ctx)
             self.msg = ("new trip started", now + 3.0)
             ctx.log("Drive HUD: new trip")
         if now - self.last_poll >= POLL_S:
             self.last_poll = now
-            self._poll(ctx)
+            check = now - self.last_session_check >= SESSION_CHECK_S
+            if check:
+                self.last_session_check = now
+            self._poll(ctx, check_session=check)
         if now - self.bucket_t >= SPARK_BUCKET_S:
             self.spark.append(self.bucket_n)
             self.spark = self.spark[-SPARK_BARS:]
@@ -181,7 +208,11 @@ class Extra:
             ctx.rect(x, y, tw, th, "edge", fill=False)
             ctx.text(label, x + 12, y + 8, 18, "dim", bold=True)
             vw = ctx.measure(val, big)
-            ctx.text(val, x + (tw - int(vw)) // 2, y + (th - big) // 2 + 6, big, col, bold=True)
+            size = big
+            if vw > tw - 24:                 # long value: shrink to fit the tile (measure is linear in size)
+                size = max(12, int(big * (tw - 24) / vw))
+                vw = ctx.measure(val, size)
+            ctx.text(val, x + (tw - int(vw)) // 2, y + (th - size) // 2 + 6, size, col, bold=True)
             if sub:
                 ctx.text(sub, x + tw - 12 - int(ctx.measure(sub, 18)), y + th - 28, 18, "dim")
 
